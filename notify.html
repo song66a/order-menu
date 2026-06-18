@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>notify</title>
+</head>
+<body>
+<script>
+(function(){
+  var params = new URLSearchParams(window.location.search);
+  var key = params.get('key');
+  var title = params.get('title') || '新订单';
+  var content = params.get('content') || '';
+
+  if (!key || !content) return;
+
+  fetch('https://www.pushplus.plus/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      token: key,
+      title: title,
+      content: content.replace(/\\n/g, '<br>'),
+      template: 'html'
+    })
+  }).catch(function(){});
+})();
+</script>
+</body>
+</html>
