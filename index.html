@@ -77,6 +77,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hira
 .success-box h2{font-size:18px;margin-bottom:8px}
 .success-box p{font-size:14px;color:var(--text-light);margin-bottom:20px}
 .success-box button{padding:10px 40px;border:none;border-radius:22px;background:var(--primary);color:#fff;font-size:15px;cursor:pointer}
+.pay-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:400;display:none;justify-content:center;align-items:center}
+.pay-overlay.show{display:flex}
+.pay-box{background:var(--card);border-radius:16px;padding:32px 24px;text-align:center;width:320px;max-width:90vw;animation:popIn .3s}
+.pay-box h2{font-size:18px;margin-bottom:6px}
+.pay-amount{font-size:28px;font-weight:700;color:var(--primary);margin:12px 0}
+.pay-amount::before{content:'¥';font-size:16px}
+.pay-tabs{display:flex;margin-bottom:16px;border-radius:8px;overflow:hidden;border:1px solid var(--border)}
+.pay-tab{flex:1;padding:10px;border:none;background:var(--bg);font-size:14px;cursor:pointer;transition:all .2s;color:var(--text-light)}
+.pay-tab.active{background:var(--primary);color:#fff;font-weight:600}
+.pay-qr{width:200px;height:200px;margin:0 auto 12px;border-radius:8px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;background:#fff}
+.pay-qr img{width:100%;height:100%;object-fit:contain}
+.pay-qr .no-qr{color:var(--text-light);font-size:12px;padding:20px}
+.pay-hint{font-size:12px;color:var(--text-light);margin-bottom:16px;line-height:1.6}
+.pay-done-btn{width:100%;padding:12px;border:none;border-radius:24px;background:linear-gradient(135deg,#27ae60,#2ecc71);color:#fff;font-size:15px;font-weight:600;cursor:pointer}
+.pay-done-btn:active{opacity:.85}
 .empty-cart{text-align:center;padding:40px 0;color:var(--text-light);font-size:14px}
 .empty-cart svg{width:60px;height:60px;fill:#ddd;margin-bottom:10px}
 .search-bar{padding:10px 12px;background:var(--card);position:sticky;top:110px;z-index:98}
@@ -136,6 +151,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hira
     <h2>下单成功！</h2>
     <p id="successMsg">您的订单已提交，请耐心等待</p>
     <button onclick="closeSuccess()">好的</button>
+  </div>
+</div>
+
+<div class="pay-overlay" id="payOverlay">
+  <div class="pay-box">
+    <h2>扫码付款</h2>
+    <div class="pay-amount" id="payAmount">0</div>
+    <div class="pay-tabs">
+      <button class="pay-tab active" onclick="switchPayTab('wechat',this)">微信支付</button>
+      <button class="pay-tab" onclick="switchPayTab('alipay',this)">支付宝</button>
+    </div>
+    <div class="pay-qr" id="payQr">
+      <div class="no-qr">加载中...</div>
+    </div>
+    <div class="pay-hint">请使用微信/支付宝扫描上方二维码完成付款<br>付款完成后点击下方按钮</div>
+    <button class="pay-done-btn" onclick="payDone()">我已完成付款</button>
   </div>
 </div>
 
@@ -351,13 +382,60 @@ function submitOrder() {
   var content = orderItems.join('\\n') + '\\n合计：¥' + totalPrice + '（共' + totalQty + '件）';
   if (remark) content += '\\n备注：' + remark;
   sendNotify(title, content);
+
   document.getElementById('cartModal').classList.remove('show');
-  document.getElementById('successMsg').textContent = '共' + totalQty + '件，合计¥' + totalPrice + (remark ? '，备注：' + remark : '');
-  document.getElementById('successOverlay').classList.add('show');
+  document.getElementById('payAmount').textContent = totalPrice;
+  currentPayType = 'wechat';
+  loadPayQr('wechat');
+
+  var payTabs = document.querySelectorAll('.pay-tab');
+  payTabs[0].classList.add('active');
+  payTabs[1].classList.remove('active');
+
+  document.getElementById('payOverlay').classList.add('show');
+  lastOrderInfo = { items: orderItems, total: totalPrice, qty: totalQty, remark: remark, table: table };
   cart = {};
   document.getElementById('remarkInput').value = '';
   updateCartBar();
   renderMenu();
+}
+
+var currentPayType = 'wechat';
+var lastOrderInfo = null;
+
+function switchPayTab(type, el) {
+  currentPayType = type;
+  var tabs = document.querySelectorAll('.pay-tab');
+  tabs.forEach(function(t) { t.classList.remove('active'); });
+  el.classList.add('active');
+  loadPayQr(type);
+}
+
+function loadPayQr(type) {
+  var qr = document.getElementById('payQr');
+  var key = type === 'wechat' ? 'wechat_qr' : 'alipay_qr';
+  var qrUrl = localStorage.getItem(key) || '';
+  if (qrUrl) {
+    qr.innerHTML = '<img src="' + qrUrl + '" alt="收款码">';
+  } else {
+    fetch('pay-config.json?t=' + Date.now()).then(function(r) { return r.json(); }).then(function(cfg) {
+      var url = type === 'wechat' ? cfg.wechat_qr : cfg.alipay_qr;
+      if (url) {
+        localStorage.setItem(key, url);
+        qr.innerHTML = '<img src="' + url + '" alt="收款码">';
+      } else {
+        qr.innerHTML = '<div class="no-qr">商家暂未设置收款码<br>请联系商家付款</div>';
+      }
+    }).catch(function() {
+      qr.innerHTML = '<div class="no-qr">商家暂未设置收款码<br>请联系商家付款</div>';
+    });
+  }
+}
+
+function payDone() {
+  document.getElementById('payOverlay').classList.remove('show');
+  document.getElementById('successMsg').textContent = '付款完成，订单已提交！\n请耐心等待上菜';
+  document.getElementById('successOverlay').classList.add('show');
 }
 
 function closeSuccess() {
