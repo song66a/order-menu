@@ -42,6 +42,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei
 .config-bar input{width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px;outline:none}
 .config-bar input:focus{border-color:#3498db}
 .config-bar .hint{font-size:11px;color:#999;margin-top:4px}
+.qr-upload{margin-top:10px;padding:12px;background:#fff;border-radius:8px;border:1px dashed #ddd}
+.qr-upload h4{font-size:13px;margin-bottom:8px}
+.qr-upload .qr-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.qr-upload .qr-row label{font-size:12px;min-width:60px;color:#666}
+.qr-upload .qr-row input[type=file]{font-size:12px;flex:1}
+.qr-upload .qr-preview{width:80px;height:80px;border:1px solid #eee;border-radius:4px;object-fit:contain}
+.qr-upload .qr-btn{padding:6px 14px;border:none;border-radius:4px;font-size:12px;cursor:pointer;color:#fff;background:#27ae60}
 </style>
 </head>
 <body>
@@ -59,6 +66,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei
   <label style="margin-top:10px">桌号设置</label>
   <input type="text" id="tableNum" placeholder="如：A01" value="A01">
   <div class="hint">显示在顾客点菜页面顶部</div>
+  <div class="qr-upload">
+    <h4>收款码设置（顾客付款时展示）</h4>
+    <div class="qr-row">
+      <label>微信收款码</label>
+      <input type="file" id="wechatQrFile" accept="image/*" onchange="previewQr(this,'wechatQrPreview')">
+      <img id="wechatQrPreview" class="qr-preview" style="display:none">
+    </div>
+    <div class="qr-row">
+      <label>支付宝收款码</label>
+      <input type="file" id="alipayQrFile" accept="image/*" onchange="previewQr(this,'alipayQrPreview')">
+      <img id="alipayQrPreview" class="qr-preview" style="display:none">
+    </div>
+    <button class="qr-btn" onclick="uploadPayConfig()">上传收款码并发布</button>
+  </div>
 </div>
 <div class="toolbar">
   <button class="btn-add" onclick="addCategory()">+ 添加分类</button>
@@ -74,6 +95,8 @@ var GH_OWNER = 'song66a';
 var GH_REPO = 'order-menu';
 var menuData = [];
 var fileSha = null;
+var payConfig = { wechat_qr: '', alipay_qr: '' };
+var payConfigSha = null;
 
 function showToast(msg, dur) {
   var t = document.getElementById('toast');
@@ -136,6 +159,139 @@ function fetchMenu() {
   };
   xhr.onerror = function() { menuData = getDefaultMenu(); render(); };
   xhr.send();
+
+  var xhr2 = new XMLHttpRequest();
+  xhr2.open('GET', 'pay-config.json?t=' + Date.now(), true);
+  xhr2.onload = function() {
+    if (xhr2.status === 200) {
+      try { payConfig = JSON.parse(xhr2.responseText); } catch(e) {}
+    }
+    if (payConfig.wechat_qr) {
+      var el = document.getElementById('wechatQrPreview');
+      el.src = payConfig.wechat_qr; el.style.display = 'block';
+    }
+    if (payConfig.alipay_qr) {
+      var el2 = document.getElementById('alipayQrPreview');
+      el2.src = payConfig.alipay_qr; el2.style.display = 'block';
+    }
+  };
+  xhr2.send();
+}
+
+function previewQr(input, previewId) {
+  var file = input.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    document.getElementById(previewId).src = e.target.result;
+    document.getElementById(previewId).style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+}
+
+function compressImage(file, maxWidth, callback) {
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var img = new Image();
+    img.onload = function() {
+      var canvas = document.createElement('canvas');
+      var w = img.width, h = img.height;
+      if (w > maxWidth) { h = h * maxWidth / w; w = maxWidth; }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      callback(canvas.toDataURL('image/jpeg', 0.7));
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function uploadPayConfig() {
+  var token = document.getElementById('ghToken').value.trim();
+  if (!token) { showToast('请先填写 GitHub Token'); return; }
+  localStorage.setItem('gh_token', token);
+
+  var wechatFile = document.getElementById('wechatQrFile').files[0];
+  var alipayFile = document.getElementById('alipayQrFile').files[0];
+  var pending = 0;
+  var done = 0;
+
+  if (wechatFile) pending++;
+  if (alipayFile) pending++;
+
+  if (pending === 0) {
+    if (!payConfig.wechat_qr && !payConfig.alipay_qr) {
+      showToast('请先选择收款码图片');
+      return;
+    }
+    pushPayConfig(token);
+    return;
+  }
+
+  showToast('正在处理收款码图片...', 10000);
+
+  if (wechatFile) {
+    compressImage(wechatFile, 400, function(dataUrl) {
+      payConfig.wechat_qr = dataUrl;
+      done++;
+      if (done === pending) pushPayConfig(token);
+    });
+  }
+  if (alipayFile) {
+    compressImage(alipayFile, 400, function(dataUrl) {
+      payConfig.alipay_qr = dataUrl;
+      done++;
+      if (done === pending) pushPayConfig(token);
+    });
+  }
+}
+
+function pushPayConfig(token) {
+  var jsonStr = JSON.stringify(payConfig);
+  var b64 = btoa(unescape(encodeURIComponent(jsonStr)));
+  showToast('正在发布收款码...', 10000);
+
+  function doUpload(sha) {
+    var body = JSON.stringify({
+      message: 'update pay config',
+      content: b64,
+      sha: sha
+    });
+    var xhr = new XMLHttpRequest();
+    xhr.open('PUT', 'https://api.github.com/repos/' + GH_OWNER + '/' + GH_REPO + '/contents/pay-config.json', true);
+    xhr.setRequestHeader('Authorization', 'token ' + token);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.setRequestHeader('User-Agent', 'MenuAdmin');
+    xhr.onload = function() {
+      if (xhr.status === 200 || xhr.status === 201) {
+        try { payConfigSha = JSON.parse(xhr.responseText).content.sha; } catch(e) {}
+        showToast('收款码发布成功！');
+      } else {
+        showToast('发布失败：' + xhr.status);
+      }
+    };
+    xhr.onerror = function() { showToast('网络错误'); };
+    xhr.send(body);
+  }
+
+  if (payConfigSha) {
+    doUpload(payConfigSha);
+  } else {
+    var xhr2 = new XMLHttpRequest();
+    xhr2.open('GET', 'https://api.github.com/repos/' + GH_OWNER + '/' + GH_REPO + '/contents/pay-config.json', true);
+    xhr2.setRequestHeader('Authorization', 'token ' + token);
+    xhr2.setRequestHeader('User-Agent', 'MenuAdmin');
+    xhr2.onload = function() {
+      if (xhr2.status === 200) {
+        payConfigSha = JSON.parse(xhr2.responseText).sha;
+        doUpload(payConfigSha);
+      } else {
+        doUpload(null);
+      }
+    };
+    xhr2.onerror = function() { doUpload(null); };
+    xhr2.send();
+  }
 }
 
 function getDefaultMenu() {
