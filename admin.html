@@ -15,6 +15,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei
 .btn-add{background:#3498db;color:#fff}
 .btn-save{background:#27ae60;color:#fff}
 .btn-preview{background:#e67e22;color:#fff}
+.btn-copy{background:#9b59b6;color:#fff}
 .btn-save:disabled{opacity:.5;cursor:wait}
 .section{padding:12px}
 .cat-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
@@ -52,11 +53,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei
   <label>GitHub Token（首次使用需填写）</label>
   <input type="password" id="ghToken" placeholder="ghp_xxxxxxxx">
   <div class="hint">用于将菜单更新发布到网站，token保存在本地不会外传</div>
+  <label style="margin-top:10px">PushPlus 微信通知 Key（选填）</label>
+  <input type="text" id="pushKey" placeholder="填入PushPlus的token">
+  <div class="hint">顾客下单后微信自动通知商家。获取方式：关注微信公众号「PushPlus推送加」→ 发送"token"获取</div>
+  <label style="margin-top:10px">桌号设置</label>
+  <input type="text" id="tableNum" placeholder="如：A01" value="A01">
+  <div class="hint">显示在顾客点菜页面顶部</div>
 </div>
 <div class="toolbar">
   <button class="btn-add" onclick="addCategory()">+ 添加分类</button>
   <button class="btn-save" id="saveBtn" onclick="saveAndPublish()">保存并发布</button>
-  <button class="btn-preview" onclick="previewMenu()">预览菜单</button>
+  <button class="btn-preview" onclick="previewMenu()">预览</button>
+  <button class="btn-copy" onclick="copyShareLink()">复制分享链接</button>
 </div>
 <div id="editor"></div>
 <div class="toast" id="toast"></div>
@@ -204,8 +212,39 @@ function previewMenu() {
   w.location.href = 'index.html';
 }
 
+function generateShareLink() {
+  var key = document.getElementById('pushKey').value.trim();
+  var table = document.getElementById('tableNum').value.trim() || 'A01';
+  var base = 'https://song66a.github.io/order-menu/';
+  var link = base + '?table=' + encodeURIComponent(table);
+  if (key) link += '&key=' + encodeURIComponent(key);
+  return link;
+}
+
+function copyShareLink() {
+  var link = generateShareLink();
+  var input = document.createElement('input');
+  input.value = link;
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand('copy');
+  document.body.removeChild(input);
+  showToast('分享链接已复制！\n' + link, 3000);
+}
+
 var savedToken = localStorage.getItem('gh_token');
 if (savedToken) document.getElementById('ghToken').value = savedToken;
+var savedPushKey = localStorage.getItem('push_key');
+if (savedPushKey) document.getElementById('pushKey').value = savedPushKey;
+var savedTable = localStorage.getItem('table_num');
+if (savedTable) document.getElementById('tableNum').value = savedTable;
+
+document.getElementById('pushKey').addEventListener('change', function() {
+  localStorage.setItem('push_key', this.value.trim());
+});
+document.getElementById('tableNum').addEventListener('change', function() {
+  localStorage.setItem('table_num', this.value.trim());
+});
 
 fetchMenu();
 </script>
