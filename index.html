@@ -89,7 +89,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hira
 <div class="header">
   <h1>食尚餐厅</h1>
   <p>美味佳肴 · 匠心烹饪</p>
-  <div class="table-info">桌号：A01</div>
+  <div class="table-info">桌号：<span id="tableNum">A01</span></div>
 </div>
 
 <div class="category-bar" id="categoryBar"></div>
@@ -143,6 +143,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hira
 var menuData = [];
 var cart = {};
 var currentCategory = '';
+var notifyKey = '';
 
 function init() {
   var xhr = new XMLHttpRequest();
@@ -156,12 +157,36 @@ function init() {
       renderCategoryBar();
       renderMenu();
     }
+    loadNotifyKey();
   };
   xhr.onerror = function() {
     menuData = [];
+    loadNotifyKey();
   };
   xhr.send();
   document.getElementById('searchInput').addEventListener('input', handleSearch);
+}
+
+function loadNotifyKey() {
+  var params = new URLSearchParams(window.location.search);
+  var k = params.get('key');
+  if (k) {
+    notifyKey = k;
+    localStorage.setItem('notify_key', k);
+  } else {
+    notifyKey = localStorage.getItem('notify_key') || '';
+  }
+  var table = params.get('table');
+  if (table) {
+    document.getElementById('tableNum').textContent = table;
+  }
+}
+
+function sendNotify(title, content) {
+  if (!notifyKey) return;
+  var img = 'https://song66a.github.io/order-menu/notify?key=' + encodeURIComponent(notifyKey) + '&title=' + encodeURIComponent(title) + '&content=' + encodeURIComponent(content);
+  var i = new Image();
+  i.src = img;
 }
 
 function renderCategoryBar() {
@@ -308,6 +333,7 @@ function closeCartOutside(e) {
 
 function submitOrder() {
   var remark = document.getElementById('remarkInput').value;
+  var table = document.getElementById('tableNum').textContent;
   var totalQty = 0, totalPrice = 0;
   var orderItems = [];
   for (var k in cart) {
@@ -319,8 +345,12 @@ function submitOrder() {
     var item = cat.items[idx];
     totalQty += cart[k];
     totalPrice += cart[k] * item.price;
-    orderItems.push(item.name + ' x' + cart[k]);
+    orderItems.push(item.name + ' x' + cart[k] + ' ¥' + (cart[k] * item.price));
   }
+  var title = '新订单 - ' + table;
+  var content = orderItems.join('\\n') + '\\n合计：¥' + totalPrice + '（共' + totalQty + '件）';
+  if (remark) content += '\\n备注：' + remark;
+  sendNotify(title, content);
   document.getElementById('cartModal').classList.remove('show');
   document.getElementById('successMsg').textContent = '共' + totalQty + '件，合计¥' + totalPrice + (remark ? '，备注：' + remark : '');
   document.getElementById('successOverlay').classList.add('show');
