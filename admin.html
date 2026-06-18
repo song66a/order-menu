@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<title>菜单管理后台</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:#f5f5f5;color:#333;max-width:480px;margin:0 auto;min-height:100vh;padding-bottom:20px}
+.header{background:linear-gradient(135deg,#2c3e50,#3498db);color:#fff;padding:20px 16px;text-align:center;position:sticky;top:0;z-index:100}
+.header h1{font-size:20px;font-weight:600}
+.header p{font-size:12px;opacity:.7;margin-top:4px}
+.toolbar{display:flex;gap:8px;padding:12px;background:#fff;border-bottom:1px solid #eee}
+.toolbar button{flex:1;padding:10px;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600}
+.btn-add{background:#3498db;color:#fff}
+.btn-save{background:#27ae60;color:#fff}
+.btn-preview{background:#e67e22;color:#fff}
+.btn-save:disabled{opacity:.5;cursor:wait}
+.section{padding:12px}
+.cat-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.cat-header h3{flex:1}
+.cat-header .cat-btns{display:flex;gap:6px}
+.cat-header button{padding:4px 10px;border:none;border-radius:4px;font-size:12px;cursor:pointer;color:#fff}
+.btn-add-item{background:#27ae60}
+.btn-del-cat{background:#e74c3c}
+.item-card{background:#fff;border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;gap:10px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.item-card .emoji{font-size:28px;width:40px;text-align:center;flex-shrink:0}
+.item-card .emoji input{width:36px;font-size:24px;border:none;text-align:center;outline:none}
+.item-card .info{flex:1}
+.item-card .info input{width:100%;border:1px solid #ddd;border-radius:4px;padding:5px 8px;font-size:13px;margin-bottom:4px;outline:none}
+.item-card .info input:focus{border-color:#3498db}
+.item-card .info .row{display:flex;gap:6px}
+.item-card .info .row input{flex:1}
+.item-card .del-btn{background:#e74c3c;color:#fff;border:none;border-radius:50%;width:26px;height:26px;font-size:14px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.cat-name-input{border:none;border-left:3px solid #3498db;padding-left:10px;font-size:15px;font-weight:600;outline:none;background:transparent;width:100%}
+.toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.75);color:#fff;padding:12px 24px;border-radius:8px;font-size:14px;z-index:999;display:none}
+.toast.show{display:block;animation:fadeIn .3s}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.config-bar{padding:10px 12px;background:#fff8e1;border-bottom:1px solid #ffe082}
+.config-bar label{font-size:12px;color:#666;display:block;margin-bottom:4px}
+.config-bar input{width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px;outline:none}
+.config-bar input:focus{border-color:#3498db}
+.config-bar .hint{font-size:11px;color:#999;margin-top:4px}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>菜单管理后台</h1>
+  <p>修改菜单后点击「保存并发布」即可更新顾客端</p>
+</div>
+<div class="config-bar">
+  <label>GitHub Token（首次使用需填写）</label>
+  <input type="password" id="ghToken" placeholder="ghp_xxxxxxxx">
+  <div class="hint">用于将菜单更新发布到网站，token保存在本地不会外传</div>
+</div>
+<div class="toolbar">
+  <button class="btn-add" onclick="addCategory()">+ 添加分类</button>
+  <button class="btn-save" id="saveBtn" onclick="saveAndPublish()">保存并发布</button>
+  <button class="btn-preview" onclick="previewMenu()">预览菜单</button>
+</div>
+<div id="editor"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+var GH_OWNER = 'song66a';
+var GH_REPO = 'order-menu';
+var menuData = [];
+var fileSha = null;
+
+function showToast(msg, dur) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(function() { t.classList.remove('show'); }, dur || 2000);
+}
+
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function render() {
+  var c = document.getElementById('editor');
+  var h = '';
+  menuData.forEach(function(cat, ci) {
+    h += '<div class="section">';
+    h += '<div class="cat-header">';
+    h += '<h3><input class="cat-name-input" value="' + escHtml(cat.category) + '" onchange="menuData[' + ci + '].category=this.value"></h3>';
+    h += '<div class="cat-btns">';
+    h += '<button class="btn-add-item" onclick="addItem(' + ci + ')">+菜品</button>';
+    h += '<button class="btn-del-cat" onclick="delCategory(' + ci + ')">删分类</button>';
+    h += '</div></div>';
+    cat.items.forEach(function(item, ii) {
+      h += '<div class="item-card">';
+      h += '<div class="emoji"><input value="' + escHtml(item.img) + '" onchange="menuData[' + ci + '].items[' + ii + '].img=this.value"></div>';
+      h += '<div class="info">';
+      h += '<input placeholder="菜名" value="' + escHtml(item.name) + '" onchange="menuData[' + ci + '].items[' + ii + '].name=this.value">';
+      h += '<div class="row">';
+      h += '<input type="number" placeholder="价格" value="' + item.price + '" onchange="menuData[' + ci + '].items[' + ii + '].price=Number(this.value)">';
+      h += '<input placeholder="描述" value="' + escHtml(item.desc) + '" onchange="menuData[' + ci + '].items[' + ii + '].desc=this.value">';
+      h += '</div></div>';
+      h += '<button class="del-btn" onclick="delItem(' + ci + ',' + ii + ')">×</button>';
+      h += '</div>';
+    });
+    h += '</div>';
+  });
+  c.innerHTML = h;
+}
+
+function addCategory() {
+  menuData.push({category:'新分类',items:[{name:'新菜品',price:0,desc:'请填写描述',img:'🍽️'}]});
+  render();
+}
+function delCategory(ci) {
+  if (confirm('确定删除分类「' + menuData[ci].category + '」及其所有菜品？')) { menuData.splice(ci, 1); render(); }
+}
+function addItem(ci) {
+  menuData[ci].items.push({name:'新菜品',price:0,desc:'请填写描述',img:'🍽️'});
+  render();
+}
+function delItem(ci, ii) { menuData[ci].items.splice(ii, 1); render(); }
+
+function fetchMenu() {
+  var xhr = new XMLHttpRequest();
+  xhr.open('GET', 'menu.json?t=' + Date.now(), true);
+  xhr.onload = function() {
+    if (xhr.status === 200) {
+      try { menuData = JSON.parse(xhr.responseText); } catch(e) { menuData = getDefaultMenu(); }
+    } else { menuData = getDefaultMenu(); }
+    render();
+  };
+  xhr.onerror = function() { menuData = getDefaultMenu(); render(); };
+  xhr.send();
+}
+
+function getDefaultMenu() {
+  return [
+    {category:'热销推荐',items:[{name:'招牌红烧肉',price:58,desc:'精选五花肉 慢火炖制',img:'🥩'}]},
+    {category:'热菜',items:[{name:'宫保鸡丁',price:38,desc:'经典川菜 香辣可口',img:'🍗'}]},
+  ];
+}
+
+function saveAndPublish() {
+  var token = document.getElementById('ghToken').value.trim();
+  if (!token) { showToast('请先填写 GitHub Token'); return; }
+  localStorage.setItem('gh_token', token);
+  var btn = document.getElementById('saveBtn');
+  btn.disabled = true;
+  btn.textContent = '发布中...';
+  showToast('正在发布菜单...', 10000);
+
+  var jsonStr = JSON.stringify(menuData, null, 2);
+  var b64 = btoa(unescape(encodeURIComponent(jsonStr)));
+
+  function uploadWithSha(sha) {
+    var body = JSON.stringify({
+      message: 'update menu ' + new Date().toLocaleString('zh-CN'),
+      content: b64,
+      sha: sha
+    });
+    var xhr = new XMLHttpRequest();
+    xhr.open('PUT', 'https://api.github.com/repos/' + GH_OWNER + '/' + GH_REPO + '/contents/menu.json', true);
+    xhr.setRequestHeader('Authorization', 'token ' + token);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.setRequestHeader('User-Agent', 'MenuAdmin');
+    xhr.onload = function() {
+      btn.disabled = false;
+      btn.textContent = '保存并发布';
+      if (xhr.status === 200 || xhr.status === 201) {
+        try { fileSha = JSON.parse(xhr.responseText).content.sha; } catch(e) {}
+        showToast('发布成功！1-2分钟后顾客端自动更新');
+      } else {
+        showToast('发布失败：' + xhr.status + '，请检查Token权限');
+      }
+    };
+    xhr.onerror = function() {
+      btn.disabled = false;
+      btn.textContent = '保存并发布';
+      showToast('网络错误，请重试');
+    };
+    xhr.send(body);
+  }
+
+  if (fileSha) {
+    uploadWithSha(fileSha);
+  } else {
+    var xhr2 = new XMLHttpRequest();
+    xhr2.open('GET', 'https://api.github.com/repos/' + GH_OWNER + '/' + GH_REPO + '/contents/menu.json', true);
+    xhr2.setRequestHeader('Authorization', 'token ' + token);
+    xhr2.setRequestHeader('User-Agent', 'MenuAdmin');
+    xhr2.onload = function() {
+      if (xhr2.status === 200) {
+        fileSha = JSON.parse(xhr2.responseText).sha;
+        uploadWithSha(fileSha);
+      } else {
+        uploadWithSha(null);
+      }
+    };
+    xhr2.onerror = function() { uploadWithSha(null); };
+    xhr2.send();
+  }
+}
+
+function previewMenu() {
+  localStorage.setItem('menuData', JSON.stringify(menuData));
+  var w = window.open('', '_blank');
+  w.location.href = 'index.html';
+}
+
+var savedToken = localStorage.getItem('gh_token');
+if (savedToken) document.getElementById('ghToken').value = savedToken;
+
+fetchMenu();
+</script>
+</body>
+</html>
